@@ -94,6 +94,4 @@
   (format t "heq empty counts: ~s~%" (heq-empty-counts l))
   (format t "heq output scale: ~s~%" (heq-output-scale l))
   (format t "heq linear %: ~s~%" (heq-linear-percent l))
-  (format t "agc calculation enabled: ~s~%" (agc-calculation-enabled l))
-  
-  )
+  (format t "agc calculation enabled: ~s~%" (agc-calculation-enabled l)))
