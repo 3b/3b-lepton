@@ -104,11 +104,7 @@
 	   :focus-metric (#x18 2 2)
 	   :video-freeze-enable (#x24 2 2)
 	   :video-output-format (#x30 2 2) ;;get/set
-	   :low-gain-pseudo-color-lut-select (#x34 2 2)
-	   :part-number (#x1c 16) ;; get (32 byte string)
-	   :software-revision (#x20 4) ;; 8bit maj.min.build for gpp and dsp
-	  
-	   ) 
+	   :low-gain-pseudo-color-lut-select (#x34 2 2)) 
 
      :oem (#x800
 	   :power-down (0 0) ;; run
@@ -162,7 +158,6 @@
 	 (response-size (second bb))
 	 (words 0)
 	 (data-words))
-    #++(assert (not protection)) ;; todo
     (assert (and cc mm bb response-size))
     #++(assert (not (busy i2c)))
     ;; wait for device to be ready
@@ -240,7 +235,8 @@
 	`(defun (setf ,name) (,(car lambda-list) ,lepton ,@ (cdr lambda-list))
 	   (let ((,d (progn ,@body)))
 	     (destructuring-bind ((,status &rest ,r) ,r2)
-		 (i2c-command ,lepton ,module ,base ,command ,d)
+		 (i2c-command ,lepton ,module ,base ,command ,d
+			      :protection ,(when (member module '(:oem :rad)) t))
 	       (if (eq ,status :ok)
 		   ,r2
 		   (error "command ~a failed : ~s (~s)" ',name ,status ,r))))))
@@ -327,6 +323,13 @@
 	     (word-vector x1 y1 x2 y2))
 	   (coerce v 'word-vector)))))
 
+(defmacro define-toggle (name module base)
+  `(progn
+     (define-get-enum ,name ,module ,base
+       nil :enabled)
+     ;; separate so we can use generalized boolean instead of exact enum
+     (define-command ,name ,module ,base :set (v)
+       (word-vector (if v 1 0) 0))))
 
 ;;; agc module
 (define-toggle agc-enabled :agc :enable)
@@ -398,14 +401,6 @@
 #++(define-command telemetry-enable :sys :telemetry-enable :get (lo hi)
   (assert (zerop hi))
   (ecase lo (0 nil) (1 :enabled)))
-
-(defmacro define-toggle (name module base)
-  `(progn
-     (define-get-enum ,name ,module ,base
-       nil :enabled)
-     ;; separate so we can use generalized boolean instead of exact enum
-     (define-command ,name ,module ,base :set (v)
-       (word-vector (if v 1 0) 0))))
 
 (define-toggle telemetry-enable :sys :telemetry-enable)
 
@@ -532,6 +527,8 @@
   (declare (ignore l))
   (error "not implemented yet"))
 
+#++
+(define-command reboot :oem :reboot :run ())
 (defun reboot (l)
   (declare (ignore l))
   (error "not implemented yet"))

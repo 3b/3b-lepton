@@ -7,12 +7,46 @@
    (i2c :initform nil :initarg :i2c :reader i2c)
    ;; fixme :read this from device
    (rows :initform 120 :reader rows)
-   (cols :initform 160 :reader cols)))
+   (cols :initform 160 :reader cols)
+   (video-format :initform :raw14 :reader video-format)
+   (telemetry :initform nil :reader telemetry)))
+
+(defvar *part-metadata*
+  (alexandria:plist-hash-table '("500-0643-00" (80 60)
+				 "500-0690-00" (80 60)
+				 "500-0659-01" (80 60)
+				 "500-0763-01" (80 60)
+				 "500-0726-01" (160 120)
+				 "500-0771-01" (160 120))
+			       :test 'equal))
+
+(defun update-metadata (l &key rows cols format)
+  (let ((s (get-status l)))
+    (cond
+      ((and rows cols format)
+       (setf (slot-value l 'cols) cols)
+       (setf (slot-value l 'rows) rows)
+       (setf (slot-value l 'video-format) format))
+      ((and (find :boot-ok s) (find :booted s) (not (find :busy s)))
+       (let* ((part (oem-part-number l))
+	      (m (gethash part *part-metadata*)))
+	 (unless m
+	   (error "unrecognized part # ~s? can't set metadata" part))
+	 (setf (slot-value l 'cols) (first m))
+	 (setf (slot-value l 'rows) (second m))
+	 (setf (slot-value l 'video-format)
+	       (vid-output-format l))
+	 (setf (slot-value l 'telemetry)
+	       (telemetry-enable l))))
+      ((and (find :boot-ok s) (find :booted s))
+       (error "device busy ~s~%" s))
+      (t
+       (error "bad status ~s?" s)))))
 
 (defmethod initialize-instance :after ((l lepton) &key)
 ;;; wait a bit for device to boot/error if not boot OK?
 ;;; read rows,cols
-  
+  (update-metadata l)
   )
 
 (defun open-lepton (&key (spi "0.0") (i2c "1"))

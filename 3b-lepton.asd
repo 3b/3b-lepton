@@ -8,4 +8,5 @@
   :components ((:file "package")
 	       (:file "lep-error")
 	       (:file "lepton")
-	       (:file "command")))
+	       (:file "command")
+	       (:file "capture")))
