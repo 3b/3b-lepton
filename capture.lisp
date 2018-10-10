@@ -205,64 +205,63 @@
               (type capture-frame-size-type))
      (macrolet
          ((body (tx)
-            (print
-             `(let ((frame 0)
-                    (segments 0))
-                (declare (type capture-frame-counter-type frame)
-                         (type (unsigned-byte 4) segments))
-                (lambda (output-buffer segment index)
-                  (declare (type (simple-array ,',element-type 1)
-                                 output-buffer)
-                           (optimize speed)
-                           (type (integer 0 5) segment)
-                           (type segment-index-type index))
-                  (loop
-                     with pixel-offset of-type buffer-base
-                       = (+ (* frame pixels-per-frame)
-                            (* segment (* pixels-per-packet
-                                          packets-per-segment)))
-                     with len of-type segment-size-type
-                       = (cl-spidev-lli::ctb-stride ctb)
-                     ;; don't filter header/footer, if any
-                     for packet of-type (unsigned-byte 8)
-                     from ,(if (eq tx :header)
-                               `(if (= segment 0)
-                                    4
-                                    0)
-                               0)
-                     below ,(if (eq tx :footer)
-                                `(if (= segment 3)
-                                     (- packets-per-segment 4)
-                                     packets-per-segment)
-                                'packets-per-segment)
-                     for base of-type buffer-base
-                       = (ctb-offset ctb (+ index packet) 0)
-                     do
-                       (loop
-                          for o from (+ 4 base) below (+ base len) by 2
-                          ;; o is byte offset, so mem-ref not mem-aref
-                          for ,',var of-type word
-                            = (3b-i2c::swab16
-                               (cffi:mem-ref in-pointer :unsigned-short o))
-                          for i of-type (pixel-index-type ,',samples)
-                          from pixel-offset below (+ pixel-offset len)
-                          do (setf (values
-                                    ,@ (loop for j below ,samples
-                                          collect
-                                            `(aref output-buffer
-                                                   (+ ,j (* ,',samples i)))) )
-                                   (progn ,@',body)))
-                       (incf pixel-offset pixels-per-packet))
+            `(let ((frame 0)
+                   (segments 0))
+               (declare (type capture-frame-counter-type frame)
+                        (type (unsigned-byte 4) segments))
+               (lambda (output-buffer segment index)
+                 (declare (type (simple-array ,',element-type 1)
+                                output-buffer)
+                          (optimize speed)
+                          (type (integer 0 5) segment)
+                          (type segment-index-type index))
+                 (loop
+                    with pixel-offset of-type buffer-base
+                      = (+ (* frame pixels-per-frame)
+                           (* segment (* pixels-per-packet
+                                         packets-per-segment)))
+                    with len of-type segment-size-type
+                      = (cl-spidev-lli::ctb-stride ctb)
+                    ;; don't filter header/footer, if any
+                    for packet of-type (unsigned-byte 8)
+                    from ,(if (eq tx :header)
+                              `(if (= segment 0)
+                                   4
+                                   0)
+                              0)
+                    below ,(if (eq tx :footer)
+                               `(if (= segment 3)
+                                    (- packets-per-segment 4)
+                                    packets-per-segment)
+                               'packets-per-segment)
+                    for base of-type buffer-base
+                      = (ctb-offset ctb (+ index packet) 0)
+                    do
+                      (loop
+                         for o from (+ 4 base) below (+ base len) by 2
+                         ;; o is byte offset, so mem-ref not mem-aref
+                         for ,',var of-type word
+                           = (3b-i2c::swab16
+                              (cffi:mem-ref in-pointer :unsigned-short o))
+                         for i of-type (pixel-index-type ,',samples)
+                         from pixel-offset below (+ pixel-offset len)
+                         do (setf (values
+                                   ,@ (loop for j below ,samples
+                                         collect
+                                           `(aref output-buffer
+                                                  (+ ,j (* ,',samples i)))) )
+                                  (progn ,@',body)))
+                      (incf pixel-offset pixels-per-packet))
 
-                  ;; might lose sync or start in middle of a frame, so
-                  ;; be prepared to restart frame
-                  (when (= segment 0)
-                    (setf segments 0))
-                  (setf segments (logior segments (ash 1 segment)))
-                  ;; if we got 4 segments, move to next frame
-                  (when (= segments #xf)
-                    (setf segments 0)
-                    (incf frame)))))))
+                 ;; might lose sync or start in middle of a frame, so
+                 ;; be prepared to restart frame
+                 (when (= segment 0)
+                   (setf segments 0))
+                 (setf segments (logior segments (ash 1 segment)))
+                 ;; if we got 4 segments, move to next frame
+                 (when (= segments #xf)
+                   (setf segments 0)
+                   (incf frame))))))
        (values
         (cond
           ((eq telemetry :header) (body :header))
@@ -270,9 +269,6 @@
           (t (body nil)))
         ',element-type
         ',samples))))
-(setf (values (aref a 0) (aref a 1))
-      (values 1 2))
-
 
 (declaim (type (simple-array (unsigned-byte 32) 1) *rgb-lut*))
 (defvar *rgb-lut*
@@ -317,9 +313,6 @@
          (io-buffer (make-array (* 2 packets-per-frame bytes-per-packet)
                                 :element-type '(unsigned-byte 8)
                                 :initial-element #xb8)))
-    (format t "~&~s ~s ~s ~s ~s ~s ~s ~s~%"
-            rows cols bytes-per-packet packets-per-frame packets-per-segment
-            pixels-per-packet kernel-buffer-size max-reads)
     (cl-spidev-lli::with-transfer-buffers (ctb
                                            io-buffer
                                            bytes-per-packet
@@ -344,9 +337,6 @@
                                            max-reads
                                            output-buffer
                                            :filter-segment filter)))
-            #++(format t "~&~x~%" (loop for i below 240
-                                     collect (subseq io-buffer (* i 164)
-                                                     (+ (* i 164) 24))))
             (values output-buffer resyncs)))))))
 
 #++
