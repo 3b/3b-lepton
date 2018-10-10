@@ -5,7 +5,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defconstant +max-frame-size+ (* 160 120))
   (defconstant +max-capture-frames+ (floor most-positive-fixnum
-					   +max-frame-size+)))
+                                           +max-frame-size+)))
 
 ;;; define various smaller types so we can get optimized calculations
 ;; type slightly smaller than fixnum for using as ctb-buffer-base
@@ -29,34 +29,34 @@
 (defparameter *default-speed* 20000000)
 (defun calculate-packet-params (l)
   (flet ((err ()
-	   (error "unrecognized configuration ~s?"
-		  (list (cols l) (rows l)
-			:format (video-format l)
-			:telemetry (telemetry l)))))
-     ;; 1.x-3.x are 80 pixels per segment in all configurations
+           (error "unrecognized configuration ~s?"
+                  (list (cols l) (rows l)
+                        :format (video-format l)
+                        :telemetry (telemetry l)))))
+    ;; 1.x-3.x are 80 pixels per segment in all configurations
     (let ((common '(:pixels 80)))
       (cond
-	((and (= (cols l) 80) (= (rows l) 60))
-	 ;; lepton 1.x-2.x
-	 (cond
-	   ((and (not (telemetry l)) (eq (video-format l) :raw14))
-	    (list* :length 164 :packets 60 common))
-	   ((and (telemetry l) (eq (video-format l) :raw14))
-	    (list* :length 164 :packets 63 common))
-	   ((and (not (telemetry l)) (eq (video-format l) :raw888))
-	    (list* :length 244 :packets 60 common))
-	   (t (err))))
-	((and (= (cols l) 160) (= (rows l) 120))
-	 ;; lepton 3,3.5
-	 (cond
-	   ((and (not (telemetry l)) (eq (video-format l) :raw14))
-	    (list* :length 164 :packets 240 common))
-	   ((and (telemetry l) (eq (video-format l) :raw14))
-	    (list* :length 164 :packets 244 common))
-	   ((and (not (telemetry l)) (eq (video-format l) :raw888))
-	    (list* :length 244 :packets 240 common))
-	   (t (err))))
-	(t (err))))))
+        ((and (= (cols l) 80) (= (rows l) 60))
+         ;; lepton 1.x-2.x
+         (cond
+           ((and (not (telemetry l)) (eq (video-format l) :raw14))
+            (list* :length 164 :packets 60 common))
+           ((and (telemetry l) (eq (video-format l) :raw14))
+            (list* :length 164 :packets 63 common))
+           ((and (not (telemetry l)) (eq (video-format l) :raw888))
+            (list* :length 244 :packets 60 common))
+           (t (err))))
+        ((and (= (cols l) 160) (= (rows l) 120))
+         ;; lepton 3,3.5
+         (cond
+           ((and (not (telemetry l)) (eq (video-format l) :raw14))
+            (list* :length 164 :packets 240 common))
+           ((and (telemetry l) (eq (video-format l) :raw14))
+            (list* :length 164 :packets 244 common))
+           ((and (not (telemetry l)) (eq (video-format l) :raw888))
+            (list* :length 244 :packets 240 common))
+           (t (err))))
+        (t (err))))))
 
 (declaim (inline is-discard lost-sync))
 (defun is-discard (v o)
@@ -67,10 +67,10 @@
   ;; heuristic to try to notice loss of sync, check for zero CRC
   ;; or over 75% 0s
   (or (and (zerop (aref v (+ o 2)))
-	   (zerop (aref v (+ o 3))))
+           (zerop (aref v (+ o 3))))
       (and (not (is-discard v o))
-	   (> (the fixnum (count 0 v :start o :end (+ o size)))
-	      limit))))
+           (> (the fixnum (count 0 v :start o :end (+ o size)))
+              limit))))
 
 (declaim (inline read-packet))
 (defun read-packet (fd ctb index count)
@@ -78,14 +78,14 @@
 
 (declaim (inline ctb-offset))
 (defun ctb-offset (ctb offset
-		   &optional (base (cl-spidev-lli::ctb-buffer-base ctb)))
+                   &optional (base (cl-spidev-lli::ctb-buffer-base ctb)))
   (+ (the buffer-base base)
      (* (the io-transaction-index-type offset)
-	(the segment-size-type (cl-spidev-lli::ctb-stride ctb)))))
+        (the segment-size-type (cl-spidev-lli::ctb-stride ctb)))))
 
 (defun wait-for-sync (spi ctb index)
   (declare (optimize speed)
-	   (type segment-index-type index))
+           (type segment-index-type index))
   (loop
      with resyncs fixnum  = 0
      with buffer of-type octet-vector = (cl-spidev-lli::ctb-buffer ctb)
@@ -98,7 +98,7 @@
      for i below max
      for r = (read-packet fd ctb index 1)
      when (lost-sync buffer b1 size limit)
-     ;;; TODO: try to implement optional 'fast resync'
+;;; TODO: try to implement optional 'fast resync'
      ;; search for ff ff xx 00 00...  then if high bits of xx are all
      ;; 1s, read bits to shift high bits out, then read bytes to get
      ;; to next packet edge based on position of ff bytes. (if not
@@ -114,9 +114,9 @@
 (defvar *foo* nil)
 (defun read-segment (spi ctb index segment-size max-reads)
   (declare (optimize speed)
-	   (type segment-size-type segment-size)
-	   (type segment-index-type index)
-	   (type io-transaction-index-type max-reads))
+           (type segment-size-type segment-size)
+           (type segment-index-type index)
+           (type io-transaction-index-type max-reads))
   #++(push (list :@ index segment-size max-reads) *foo*)
   (cl-spidev-lli::update-ctb-offsets ctb index)
   #++(push (list :w 0) *foo*)
@@ -129,20 +129,20 @@
        for i1 = 1 then 0
        for n = (min max-reads segment-size)
        do
-	 #++(push (list :s i1 n) *foo*)
-	 (read-packet fd ctb i1 n)
-	 (incf index n)
-	 (decf segment-size n)
+         #++(push (list :s i1 n) *foo*)
+         (read-packet fd ctb i1 n)
+         (incf index n)
+         (decf segment-size n)
        while (plusp segment-size)
        do #++(push (list :@ index) *foo*)
-	 (cl-spidev-lli::update-ctb-offsets ctb index))
+         (cl-spidev-lli::update-ctb-offsets ctb index))
     a))
 
 (defun read-frame-3 (spi ctb index packets-per-segment max-reads
                      output-buffer
-		     &key filter-segment)
+                     &key filter-segment)
   (declare (optimize speed)
-	   (type segment-index-type index packets-per-segment))
+           (type segment-index-type index packets-per-segment))
   ;; read a lepton 3/3.5 frame:
   ;; wait for sync
   ;; read a segment
@@ -152,8 +152,8 @@
   (loop
      with filter-segment of-type (or null function)
        = (if (and filter-segment (symbolp filter-segment))
-	     (fdefinition filter-segment)
-	     filter-segment)
+             (fdefinition filter-segment)
+             filter-segment)
      with resyncs fixnum = 0
      with i1 of-type segment-index-type = index
      with segment of-type (unsigned-byte 8) = 1 ;; 1-4
@@ -162,34 +162,34 @@
      do
        (cl-spidev-lli::update-ctb-offsets ctb i1)
        (let* ((offset-20 (ctb-offset ctb 20))
-	      (r (read-segment spi ctb i1 packets-per-segment max-reads)))
-	 (declare (fixnum r offset-20))
-	 (setf resyncs
-	       (ldb (byte #.(integer-length most-positive-fixnum) 0)
-		    (+ resyncs
-		       r)))
-	 ;; see if we got the segment we want
-	 (if (= (ldb (byte 4 4) (aref buffer offset-20))
-		segment)
-	     (progn
-	       #++
-	       (push (list :f+ offset-20
-			   (aref buffer offset-20)
-			   (aref buffer (+ 1 offset-20)))
-		     *foo*)
-	       ;; if so, optionally filter it
-	       (when filter-segment
-		 (funcall filter-segment output-buffer (1- segment) i1))
-	       (setf segment (1+ segment)
-		     i1 (+ i1 packets-per-segment)))
-	     (progn
-	       #++
-	       (push (list :fx offset-20
-			   (aref buffer offset-20)
-			   (aref buffer (+ 1 offset-20)))
-		     *foo*)
-	       (setf segment 1 ;; wrong or invalid segment, restaart
-		    i1 index))))
+              (r (read-segment spi ctb i1 packets-per-segment max-reads)))
+         (declare (fixnum r offset-20))
+         (setf resyncs
+               (ldb (byte #.(integer-length most-positive-fixnum) 0)
+                    (+ resyncs
+                       r)))
+         ;; see if we got the segment we want
+         (if (= (ldb (byte 4 4) (aref buffer offset-20))
+                segment)
+             (progn
+               #++
+               (push (list :f+ offset-20
+                           (aref buffer offset-20)
+                           (aref buffer (+ 1 offset-20)))
+                     *foo*)
+               ;; if so, optionally filter it
+               (when filter-segment
+                 (funcall filter-segment output-buffer (1- segment) i1))
+               (setf segment (1+ segment)
+                     i1 (+ i1 packets-per-segment)))
+             (progn
+               #++
+               (push (list :fx offset-20
+                           (aref buffer offset-20)
+                           (aref buffer (+ 1 offset-20)))
+                     *foo*)
+               (setf segment 1 ;; wrong or invalid segment, restaart
+                     i1 index))))
 
      while (< segment 5)
      finally (return resyncs)))
@@ -286,69 +286,68 @@
           '(simple-array (unsigned-byte 32) 1)))
 
 (define-pixel-filter sf-raw (v :element-type (unsigned-byte 16) :samples 1)
-   v)
+  v)
 
 (define-pixel-filter sf-rgb-lut (v :element-type (unsigned-byte 8) :samples 4)
   (let ((c (aref *rgb-lut* (ash v -2))))
     (values 255 (ldb (byte 8 16) c) (ldb (byte 8 8) c) (ldb (byte 8 0) c))))
 
 (defun capture-frames (lepton &key (count 1)
-				(filter-generator 'sf-raw))
+                                (filter-generator 'sf-raw))
   (sleep 0.185)
   (setf (cl-spidev:max-speed (spi lepton)) *default-speed*)
   (update-metadata lepton)
   (check-type count capture-frame-counter-type)
   (let* ((params (calculate-packet-params lepton))
-	 (telemetry (and (telemetry-enable lepton)
-			 (telemetry-location lepton)))
-	 (rows (rows lepton))
-	 (cols (cols lepton))
-	 (bytes-per-packet (getf params :length))
-	 (packets-per-frame (getf params :packets))
-	 (packets-per-segment (/ packets-per-frame 4))
-	 (pixels-per-packet (getf params :pixels))
-	 ;; fixme: detect or make configurable
-	 (kernel-buffer-size 4096)
+         (telemetry (and (telemetry-enable lepton)
+                         (telemetry-location lepton)))
+         (rows (rows lepton))
+         (cols (cols lepton))
+         (bytes-per-packet (getf params :length))
+         (packets-per-frame (getf params :packets))
+         (packets-per-segment (/ packets-per-frame 4))
+         (pixels-per-packet (getf params :pixels))
+         ;; fixme: detect or make configurable
+         (kernel-buffer-size 4096)
          (resyncs 0)
-	 ;; max packets per IO with default linux spidev buffer size
-	 (max-reads (floor kernel-buffer-size bytes-per-packet))
-	 ;; fixme: probably can simplify read-frame to only use 1
-	 ;; segment if we always filter/copy out every segment?
-	 (io-buffer (make-array (* 2 packets-per-frame bytes-per-packet)
-				:element-type '(unsigned-byte 8)
-				:initial-element #xb8)))
+         ;; max packets per IO with default linux spidev buffer size
+         (max-reads (floor kernel-buffer-size bytes-per-packet))
+         ;; fixme: probably can simplify read-frame to only use 1
+         ;; segment if we always filter/copy out every segment?
+         (io-buffer (make-array (* 2 packets-per-frame bytes-per-packet)
+                                :element-type '(unsigned-byte 8)
+                                :initial-element #xb8)))
     (format t "~&~s ~s ~s ~s ~s ~s ~s ~s~%"
-	    rows cols bytes-per-packet packets-per-frame packets-per-segment
-	    pixels-per-packet kernel-buffer-size max-reads)
+            rows cols bytes-per-packet packets-per-frame packets-per-segment
+            pixels-per-packet kernel-buffer-size max-reads)
     (cl-spidev-lli::with-transfer-buffers (ctb
-					   io-buffer
-					   bytes-per-packet
-					   (+ 2 max-reads)
-					   #++ packets-per-segment
-					   *default-speed* 0 8)
+                                           io-buffer
+                                           bytes-per-packet
+                                           (+ 2 max-reads)
+                                           #++ packets-per-segment
+                                           *default-speed* 0 8)
       (cffi:with-pointer-to-vector-data (io-pointer io-buffer)
         (multiple-value-bind (filter output-type samples)
-             (funcall filter-generator
-                                ctb io-pointer
-                                telemetry
-                                (* rows cols)
-                                pixels-per-packet
-                                packets-per-segment)
+            (funcall filter-generator
+                     ctb io-pointer
+                     telemetry
+                     (* rows cols)
+                     pixels-per-packet
+                     packets-per-segment)
           ;; enough space for COUNT frames
-         (let ((output-buffer (make-array (* count rows cols samples)
-                                          :element-type output-type)))
-           (setf resyncs
-                 (loop repeat count
-                    collect (read-frame-3 (spi lepton) ctb 0
-                                          packets-per-segment
-                                          max-reads
-                                          output-buffer
-                                          :filter-segment filter)))
-           	#++(format t "~&~x~%" (loop for i below 240
-                                 collect (subseq io-buffer (* i 164)
-					      (+ (* i 164) 24))))
-            (values output-buffer resyncs)))))
-))
+          (let ((output-buffer (make-array (* count rows cols samples)
+                                           :element-type output-type)))
+            (setf resyncs
+                  (loop repeat count
+                     collect (read-frame-3 (spi lepton) ctb 0
+                                           packets-per-segment
+                                           max-reads
+                                           output-buffer
+                                           :filter-segment filter)))
+            #++(format t "~&~x~%" (loop for i below 240
+                                     collect (subseq io-buffer (* i 164)
+                                                     (+ (* i 164) 24))))
+            (values output-buffer resyncs)))))))
 
 #++
 (with-lepton (l)
@@ -360,9 +359,9 @@
   (setf (telemetry-location l) :footer)
   ;; capture a single frame as (unsigned-byte 16) and print upper left corner
   (format t "~x" (loop with f = (capture-frames l :count 1)
-		    for i below 15
-		    collect (subseq f (* i 80) (+ (* i 80) 24)
-				    )))
+                    for i below 15
+                    collect (subseq f (* i 80) (+ (* i 80) 24)
+                                    )))
   (format t "~&~{~a~%~}" (reverse *foo*)))
 
 #++
@@ -372,11 +371,11 @@
   (setf (telemetry-enable l) nil)
   ;; generate a (very bad) color LUT
   (let ((*rgb-lut* (coerce (loop for i below 65535
-                          for r = (ldb (byte 8 6) i)
-                          for g = (ldb (byte 8 3) i)
-                          for b = (ldb (byte 8 0) i)
-                          collect (logior (ash r 16) (ash g 8) b))
-                       '(simple-array (unsigned-byte 32) 1))))
+                              for r = (ldb (byte 8 6) i)
+                              for g = (ldb (byte 8 3) i)
+                              for b = (ldb (byte 8 0) i)
+                              collect (logior (ash r 16) (ash g 8) b))
+                           '(simple-array (unsigned-byte 32) 1))))
     (multiple-value-bind (frames resyncs)
         ;; capture 60 seconds of video (~48MB of rgba data?)
         (capture-frames l :count (* 9 60)
@@ -389,7 +388,7 @@
       ;; return some indication of how well it kept up with recording,
       ;; non-zero means it lost sync with camera and had to wait for
       ;; resync (= # of tries it took to resync, at ~0.2sec each)
-     resyncs)))
+      resyncs)))
 
 #++
 (with-lepton (l)

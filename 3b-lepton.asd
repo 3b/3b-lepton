@@ -6,7 +6,7 @@
   :depends-on (cl-spidev cffi alexandria 3b-i2c)
   :serial t
   :components ((:file "package")
-	       (:file "lep-error")
-	       (:file "lepton")
-	       (:file "command")
-	       (:file "capture")))
+               (:file "lep-error")
+               (:file "lepton")
+               (:file "command")
+               (:file "capture")))
