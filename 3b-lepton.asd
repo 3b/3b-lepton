@@ -10,3 +10,11 @@
                (:file "lepton")
                (:file "command")
                (:file "capture")))
+
+(asdf:defsystem 3b-lepton/viewer
+  :depends-on (3b-lepton glop cl-opengl)
+  :serial t
+  :components ((:module
+                "viewer"
+                :components ((:file "package")
+                            (:file "viewer")))))
