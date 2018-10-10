@@ -21,7 +21,10 @@
 ;; type for index into captured frames (must be small enough to get a
 ;; fixnum when multiplied by +max-frame-size+ pixels)
 (deftype capture-frame-counter-type () `(integer 0 ,+max-capture-frames+))
-
+;; type for pixel index in a multiple sample per pixel buffer
+(deftype pixel-index-type (samples) `(unsigned-byte
+                                      ,(- (integer-length most-positive-fixnum)
+                                          (integer-length (1- samples)))))
 
 (defparameter *default-speed* 20000000)
 (defun calculate-packet-params (l)
@@ -136,7 +139,8 @@
     a))
 
 (defun read-frame-3 (spi ctb index packets-per-segment max-reads
-		     &key filter-segment )
+                     output-buffer
+		     &key filter-segment)
   (declare (optimize speed)
 	   (type segment-index-type index packets-per-segment))
   ;; read a lepton 3/3.5 frame:
@@ -175,7 +179,7 @@
 		     *foo*)
 	       ;; if so, optionally filter it
 	       (when filter-segment
-		 (funcall filter-segment (1- segment) i1))
+		 (funcall filter-segment output-buffer (1- segment) i1))
 	       (setf segment (1+ segment)
 		     i1 (+ i1 packets-per-segment)))
 	     (progn
@@ -190,71 +194,105 @@
      while (< segment 5)
      finally (return resyncs)))
 
-(defun sf-raw (ctb in-pointer output-buffer telemetry
-	        pixels-per-segment packets-per-segment)
-  (declare (type segment-size-type pixels-per-segment)
-	   (type (unsigned-byte 8) packets-per-segment)
-	   (type capture-frame-size-type))
-  (macrolet
-      ((body (tx)
-	 `(let ((frame 0)
-		(segments 0)
-		(pixel-offset 0))
-	    (declare (type capture-frame-counter-type frame)
-		     (type (unsigned-byte 4) segments)
-		     (type buffer-base pixel-offset))
-	    (lambda (segment index)
-	      (declare (type (simple-array (unsigned-byte 16) 1)
-			     output-buffer)
-		       (optimize speed)
-		       (type (integer 0 5) segment)
-		       (type segment-index-type index))
-	      (loop
-		 with len of-type segment-size-type
-		   = (cl-spidev-lli::ctb-stride ctb)
-		 ;; don't filter header/footer, if any
-		 for packet of-type (unsigned-byte 8)
-		 from ,(if (eq tx :header)
-			   `(if (= segment 0)
-				4
-				0)
-			   0)
-		 below ,(if (eq tx :footer)
-			    `(if (= segment 3)
-				 (- packets-per-segment 4)
-				 packets-per-segment)
-			    'packets-per-segment)
-		 for base of-type buffer-base
-		   = (ctb-offset ctb (+ index packet) 0)
-		 do
-		   (loop
-		      for o from (+ 4 base) below (+ base len) by 2
-		      ;; o is byte offset, so mem-ref not mem-aref
-		      for v of-type word = (cffi:mem-ref in-pointer
-							 :unsigned-short o)
-		      for i from pixel-offset below (+ pixel-offset len)
-		      do (setf (aref output-buffer i)
-			       (1+ (3b-i2c::swab16 v))))
-		   (incf pixel-offset pixels-per-segment))
+(defmacro define-pixel-filter (name (var &key (element-type
+                                               '(unsigned-byte 16))
+                                         (samples 1))
+                               &body body)
+  `(defun ,name (ctb in-pointer telemetry pixels-per-frame
+                 pixels-per-packet packets-per-segment)
+     (declare (type segment-size-type pixels-per-packet)
+              (type (unsigned-byte 8) packets-per-segment)
+              (type capture-frame-size-type))
+     (macrolet
+         ((body (tx)
+            (print
+             `(let ((frame 0)
+                    (segments 0))
+                (declare (type capture-frame-counter-type frame)
+                         (type (unsigned-byte 4) segments))
+                (lambda (output-buffer segment index)
+                  (declare (type (simple-array ,',element-type 1)
+                                 output-buffer)
+                           (optimize speed)
+                           (type (integer 0 5) segment)
+                           (type segment-index-type index))
+                  (loop
+                     with pixel-offset of-type buffer-base
+                       = (+ (* frame pixels-per-frame)
+                            (* segment (* pixels-per-packet
+                                          packets-per-segment)))
+                     with len of-type segment-size-type
+                       = (cl-spidev-lli::ctb-stride ctb)
+                     ;; don't filter header/footer, if any
+                     for packet of-type (unsigned-byte 8)
+                     from ,(if (eq tx :header)
+                               `(if (= segment 0)
+                                    4
+                                    0)
+                               0)
+                     below ,(if (eq tx :footer)
+                                `(if (= segment 3)
+                                     (- packets-per-segment 4)
+                                     packets-per-segment)
+                                'packets-per-segment)
+                     for base of-type buffer-base
+                       = (ctb-offset ctb (+ index packet) 0)
+                     do
+                       (loop
+                          for o from (+ 4 base) below (+ base len) by 2
+                          ;; o is byte offset, so mem-ref not mem-aref
+                          for ,',var of-type word
+                            = (3b-i2c::swab16
+                               (cffi:mem-ref in-pointer :unsigned-short o))
+                          for i of-type (pixel-index-type ,',samples)
+                          from pixel-offset below (+ pixel-offset len)
+                          do (setf (values
+                                    ,@ (loop for j below ,samples
+                                          collect
+                                            `(aref output-buffer
+                                                   (+ ,j (* ,',samples i)))) )
+                                   (progn ,@',body)))
+                       (incf pixel-offset pixels-per-packet))
 
-	      ;; might lose sync or start in middle of a frame, so
-	      ;; be prepared to restart frame
-	      (when (= segment 0)
-		(setf segments 0))
-	      (setf segments (logior segments (ash 1 segment)))
-	      ;; if we got 4 segments, move to next frame
-	      (when (= segments #xf)
-		(setf segments 0)
-		(incf frame))))))
-    (cond
-      ((eq telemetry :header) (body :header))
-      ((eq telemetry :footer) (body :footer))
-      (t (body nil)))))
+                  ;; might lose sync or start in middle of a frame, so
+                  ;; be prepared to restart frame
+                  (when (= segment 0)
+                    (setf segments 0))
+                  (setf segments (logior segments (ash 1 segment)))
+                  ;; if we got 4 segments, move to next frame
+                  (when (= segments #xf)
+                    (setf segments 0)
+                    (incf frame)))))))
+       (values
+        (cond
+          ((eq telemetry :header) (body :header))
+          ((eq telemetry :footer) (body :footer))
+          (t (body nil)))
+        ',element-type
+        ',samples))))
+(setf (values (aref a 0) (aref a 1))
+      (values 1 2))
 
+
+(declaim (type (simple-array (unsigned-byte 32) 1) *rgb-lut*))
+(defvar *rgb-lut*
+  ;; default more-or-less grayscale lut with some variation in low bits
+  (coerce (loop for i below 16384
+             for l = (ldb (byte 8 6) i)
+             for r = (min 255 (max 0 (+ l (- (ldb (byte 2 0) i) 2))))
+             for g = (min 255 (max 0 (+ l (- (ldb (byte 2 2) i) 2))))
+             for b = (min 255 (max 0 (+ l (- (ldb (byte 2 4) i) 2))))
+             collect (logior (ash r 16) (ash g 8) b))
+          '(simple-array (unsigned-byte 32) 1)))
+
+(define-pixel-filter sf-raw (v :element-type (unsigned-byte 16) :samples 1)
+   v)
+
+(define-pixel-filter sf-rgb-lut (v :element-type (unsigned-byte 8) :samples 4)
+  (let ((c (aref *rgb-lut* (ash v -2))))
+    (values 255 (ldb (byte 8 16) c) (ldb (byte 8 8) c) (ldb (byte 8 0) c))))
 
 (defun capture-frames (lepton &key (count 1)
-				;; for now must output 1 value
-				(filter-output-type '(unsigned-byte 16))
 				(filter-generator 'sf-raw))
   (sleep 0.185)
   (setf (cl-spidev:max-speed (spi lepton)) *default-speed*)
@@ -268,22 +306,20 @@
 	 (bytes-per-packet (getf params :length))
 	 (packets-per-frame (getf params :packets))
 	 (packets-per-segment (/ packets-per-frame 4))
-	 (pixels-per-segment (getf params :pixels))
+	 (pixels-per-packet (getf params :pixels))
 	 ;; fixme: detect or make configurable
 	 (kernel-buffer-size 4096)
+         (resyncs 0)
 	 ;; max packets per IO with default linux spidev buffer size
 	 (max-reads (floor kernel-buffer-size bytes-per-packet))
 	 ;; fixme: probably can simplify read-frame to only use 1
 	 ;; segment if we always filter/copy out every segment?
 	 (io-buffer (make-array (* 2 packets-per-frame bytes-per-packet)
 				:element-type '(unsigned-byte 8)
-				:initial-element #xb8))
-	 ;; enough space for COUNT frames
-	 (output-buffer (make-array (* count rows cols)
-				    :element-type filter-output-type)))
+				:initial-element #xb8)))
     (format t "~&~s ~s ~s ~s ~s ~s ~s ~s~%"
 	    rows cols bytes-per-packet packets-per-frame packets-per-segment
-	    pixels-per-segment kernel-buffer-size max-reads)
+	    pixels-per-packet kernel-buffer-size max-reads)
     (cl-spidev-lli::with-transfer-buffers (ctb
 					   io-buffer
 					   bytes-per-packet
@@ -291,36 +327,69 @@
 					   #++ packets-per-segment
 					   *default-speed* 0 8)
       (cffi:with-pointer-to-vector-data (io-pointer io-buffer)
-	(let ((filter (funcall filter-generator
-			       ctb io-pointer
-			       output-buffer telemetry
-			       pixels-per-segment
-			       packets-per-segment)))
-	  (print
-	   (loop repeat count
-	      collect (read-frame-3 (spi lepton) ctb 0
-				    packets-per-segment
-				    max-reads
-				    :filter-segment filter))))
-	(format t "~&~x~%" (loop for i below 240
-			      collect (subseq io-buffer (* i 164)
-					      (+ (* i 164) 24))))))
-    output-buffer))
+        (multiple-value-bind (filter output-type samples)
+             (funcall filter-generator
+                                ctb io-pointer
+                                telemetry
+                                (* rows cols)
+                                pixels-per-packet
+                                packets-per-segment)
+          ;; enough space for COUNT frames
+         (let ((output-buffer (make-array (* count rows cols samples)
+                                          :element-type output-type)))
+           (setf resyncs
+                 (loop repeat count
+                    collect (read-frame-3 (spi lepton) ctb 0
+                                          packets-per-segment
+                                          max-reads
+                                          output-buffer
+                                          :filter-segment filter)))
+           	#++(format t "~&~x~%" (loop for i below 240
+                                 collect (subseq io-buffer (* i 164)
+					      (+ (* i 164) 24))))
+            (values output-buffer resyncs)))))
+))
 
 #++
 (with-lepton (l)
   (setf *foo* nil)
+  ;; set camera to return constant data for testing
   (setf (oem-video-source l) :constant)
   (setf (oem-video-output-source-constant l) #x3b13)
   (setf (telemetry-enable l) nil)
   (setf (telemetry-location l) :footer)
+  ;; capture a single frame as (unsigned-byte 16) and print upper left corner
   (format t "~x" (loop with f = (capture-frames l :count 1)
 		    for i below 15
 		    collect (subseq f (* i 80) (+ (* i 80) 24)
 				    )))
-  (format t "~&~{~a~%~}"  (reverse *foo*)))
+  (format t "~&~{~a~%~}" (reverse *foo*)))
 
-
+#++
+(with-lepton (l)
+  ;; set camera to return normally processed image data
+  (setf (oem-video-source l) :cooked)
+  (setf (telemetry-enable l) nil)
+  ;; generate a (very bad) color LUT
+  (let ((*rgb-lut* (coerce (loop for i below 65535
+                          for r = (ldb (byte 8 6) i)
+                          for g = (ldb (byte 8 3) i)
+                          for b = (ldb (byte 8 0) i)
+                          collect (logior (ash r 16) (ash g 8) b))
+                       '(simple-array (unsigned-byte 32) 1))))
+    (multiple-value-bind (frames resyncs)
+        ;; capture 60 seconds of video (~48MB of rgba data?)
+        (capture-frames l :count (* 9 60)
+                        ;; convert to RGB with above LUT
+                        :filter-generator 'sf-rgb-lut)
+      ;; then write to an mp4 stream with pi hardware encoded using
+      ;; pipe to ffmpeg
+      (with-ffmpeg-stream (s "/tmp/foo.mp4")
+        (write-sequence frames s))
+      ;; return some indication of how well it kept up with recording,
+      ;; non-zero means it lost sync with camera and had to wait for
+      ;; resync (= # of tries it took to resync, at ~0.2sec each)
+     resyncs)))
 
 #++
 (with-lepton (l)
