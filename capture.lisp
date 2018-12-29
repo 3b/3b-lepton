@@ -33,6 +33,10 @@
                   (list (cols l) (rows l)
                         :format (video-format l)
                         :telemetry (telemetry l)))))
+    ;; :length is bytes per packet (including header), :packets is
+    ;; packets per frame, :segments is segments per frame (so packets
+    ;; per segment is packets/segments), :pixels is pixels per segment
+
     ;; 1.x-3.x are 80 pixels per segment in all configurations
     (let ((common '(:pixels 80)))
       (cond
@@ -40,21 +44,21 @@
          ;; lepton 1.x-2.x
          (cond
            ((and (not (telemetry l)) (eq (video-format l) :raw14))
-            (list* :length 164 :packets 60 common))
+            (list* :length 164 :packets 60 :segments 1 common))
            ((and (telemetry l) (eq (video-format l) :raw14))
-            (list* :length 164 :packets 63 common))
+            (list* :length 164 :packets 63 :segments 1 common))
            ((and (not (telemetry l)) (eq (video-format l) :raw888))
-            (list* :length 244 :packets 60 common))
+            (list* :length 244 :packets 60 :segments 1 common))
            (t (err))))
         ((and (= (cols l) 160) (= (rows l) 120))
          ;; lepton 3,3.5
          (cond
            ((and (not (telemetry l)) (eq (video-format l) :raw14))
-            (list* :length 164 :packets 240 common))
+            (list* :length 164 :packets 240 :segments 4 common))
            ((and (telemetry l) (eq (video-format l) :raw14))
-            (list* :length 164 :packets 244 common))
+            (list* :length 164 :packets 244 :segments 4 common))
            ((and (not (telemetry l)) (eq (video-format l) :raw888))
-            (list* :length 244 :packets 240 common))
+            (list* :length 244 :packets 240 :segments 4 common))
            (t (err))))
         (t (err))))))
 
@@ -80,8 +84,8 @@
 (defun ctb-offset (ctb offset
                    &optional (base (cl-spidev-lli::ctb-buffer-base ctb)))
   (+ (the buffer-base base)
-     (* (the io-transaction-index-type offset)
-        (the segment-size-type (cl-spidev-lli::ctb-stride ctb)))))
+     (* (the fixnum offset)
+        (the fixnum (cl-spidev-lli::ctb-stride ctb)))))
 
 (defun wait-for-sync (spi ctb index)
   (declare (optimize speed)
@@ -105,7 +109,8 @@
        ;; to next packet edge based on position of ff bytes. (if not
        ;; found, or xx isn't high 1s, low 0s, do normal resync)
        do (incf resyncs)
-       ;; idle device for 5+ frames so spi times out
+          ;; idle device for 5+ frames so spi times out
+          (format t "sync.")
          (sleep 0.185)
        ;; then try again
          (read-packet fd ctb index 1)
@@ -285,10 +290,10 @@
              collect (logior (ash r 16) (ash g 8) b))
           '(simple-array (unsigned-byte 32) 1)))
 
-(define-pixel-filter sf-raw (v :element-type (unsigned-byte 16) :samples 1)
+(define-pixel-filter pf-raw (v :element-type (unsigned-byte 16) :samples 1)
   v)
 
-(define-pixel-filter sf-rgb-lut (v :element-type (unsigned-byte 8) :samples 4)
+(define-pixel-filter pf-rgb-lut (v :element-type (unsigned-byte 8) :samples 4)
   (let ((c (aref *rgb-lut* v)))
     (values (ldb (byte 8 24) c)
             (ldb (byte 8 16) c)
@@ -296,7 +301,7 @@
             (ldb (byte 8 0) c))))
 
 (defmacro with-capture ((lepton output-buffer
-                                &key (count 1) (filter-generator ''sf-raw))
+                                &key (count 1) (filter-generator ''pf-raw))
                         &body body)
   (alexandria:once-only (lepton count filter-generator)
     `(progn
@@ -346,10 +351,11 @@
                                         max-reads
                                         ,output-buffer
                                         :filter-segment filter)))
+                   (declare (ignorable #'read-frame))
                    ,@body)))))))))
 
 (defun capture-frames (lepton &key (count 1)
-                                (filter-generator 'sf-raw))
+                                (filter-generator 'pf-raw))
   (let ((resyncs 0))
     (with-capture (lepton output-buffer
                           :count count :filter-generator filter-generator)
@@ -389,7 +395,7 @@
         ;; capture 60 seconds of video (~48MB of rgba data?)
         (capture-frames l :count (* 9 60)
                         ;; convert to RGB with above LUT
-                        :filter-generator 'sf-rgb-lut)
+                        :filter-generator 'pf-rgb-lut)
       ;; then write to an mp4 stream with pi hardware encoded using
       ;; pipe to ffmpeg
       (with-ffmpeg-stream (s "/tmp/foo.mp4")

@@ -49,7 +49,7 @@
   (update-metadata l)
   )
 
-(defun open-lepton (&key (spi "0.0") (i2c "1"))
+(defun open-lepton (&key (spi "0.0") (i2c "0"))
   (let (s i)
     (unwind-protect
          (prog1
@@ -70,7 +70,7 @@
     (3b-i2c:close-i2c (i2c l))
     (setf (slot-value l 'i2c) nil)))
 
-(defmacro with-lepton ((l &key (spi "0.0") (i2c "1")) &body body)
+(defmacro with-lepton ((l &key (spi "0.0") (i2c "0")) &body body)
   `(let ((,l (open-lepton :spi ,spi :i2c ,i2c)))
      (unwind-protect
           (progn
