@@ -28,3 +28,11 @@
                 "viewer"
                 :components ((:file "package")
                              (:file "es2viewer")))))
+
+(asdf:defsystem 3b-lepton/es2viewer2
+  :depends-on (3b-lepton cl-opengl/es2 glop2/drm+egl)
+  :serial t
+  :components ((:module
+                "viewer"
+                :components ((:file "package")
+                             (:file "es2viewer2")))))

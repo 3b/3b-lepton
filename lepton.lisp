@@ -49,6 +49,7 @@
   (update-metadata l)
   )
 
+(defvar *file-debug* nil)
 (defun open-lepton (&key (spi "0.0") (i2c "0"))
   (let (s i)
     (unwind-protect
@@ -57,6 +58,7 @@
               'lepton
               :spi (setf s (cl-spidev:open spi))
               :i2c (setf i (3b-i2c:open-i2c i2c)))
+           (push (list s i) *file-debug*)
            (setf s nil i nil))
       ;; close devices if we got an error before returning
       (when s (cl-spidev:close s))
